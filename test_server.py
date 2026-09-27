@@ -65,6 +65,31 @@ class ShopTests(unittest.TestCase):
             finally:
                 server.DB_PATH, server.ADMIN_ID = original_db, original_admin
 
+    def test_chat_catalog_and_order_wizard(self):
+        with tempfile.TemporaryDirectory() as folder:
+            original_db, original_admin = server.DB_PATH, server.ADMIN_ID
+            server.DB_PATH, server.ADMIN_ID = Path(folder) / 'shop.sqlite3', 99
+            try:
+                server.init_db()
+                with patch.object(server, 'telegram') as send:
+                    server.process_update({'message': {'from': {'id': 42, 'username': 'buyer'},
+                                   'chat': {'id': 42}, 'text': '/start'}})
+                    self.assertIn('Визуал', send.call_args.args[1]['text'] + str(send.call_args.args[1]['reply_markup']))
+                    server.process_update({'callback_query': {'id': 'a', 'from': {'id': 42, 'username': 'buyer'},
+                        'message': {'chat': {'id': 42}, 'message_id': 1}, 'data': 'order:cover'}})
+                    server.process_update({'message': {'from': {'id': 42}, 'chat': {'id': 42},
+                                                      'text': 'Обложка для музыкального релиза'}})
+                    server.process_update({'callback_query': {'id': 'b', 'from': {'id': 42},
+                        'message': {'chat': {'id': 42}, 'message_id': 2}, 'data': 'deadline:skip'}})
+                    with server.connect() as db:
+                        row = db.execute('SELECT * FROM orders').fetchone()
+                    self.assertEqual(row['service'], 'cover')
+                    self.assertEqual(row['user_id'], 42)
+                    self.assertNotIn(42, server.WIZARDS)
+            finally:
+                server.WIZARDS.clear()
+                server.DB_PATH, server.ADMIN_ID = original_db, original_admin
+
 
 if __name__ == '__main__':
     unittest.main()
