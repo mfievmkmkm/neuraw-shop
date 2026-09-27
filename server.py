@@ -115,6 +115,66 @@ def process_update(update):
                               (msg['from']['id'],)).fetchall()
         text = '\n'.join(f"#{r['id']} · {SERVICES[r['service']]} · {STATUSES[r['status']]}" for r in rows)
         telegram('sendMessage', {'chat_id': msg['chat']['id'], 'text': text or 'Заявок пока нет.'})
+    elif msg and msg.get('from', {}).get('id') == ADMIN_ID and msg.get('text', '').startswith('/orders'):
+        with connect() as db:
+            rows = db.execute('SELECT * FROM orders ORDER BY id DESC LIMIT 15').fetchall()
+        text = '\n'.join(f"#{r['id']} · {SERVICES[r['service']]} · {STATUSES[r['status']]} · {r['user_id']}" for r in rows)
+        telegram('sendMessage', {'chat_id': ADMIN_ID, 'text': text or 'Заказов пока нет.'})
+    elif msg and msg.get('from', {}).get('id') == ADMIN_ID and msg.get('text', '').startswith(('/quote ', '/reply ')):
+        parts = msg['text'].split(maxsplit=2)
+        if len(parts) != 3 or not parts[1].isdigit() or not 1 <= len(parts[2]) <= 2500:
+            telegram('sendMessage', {'chat_id': ADMIN_ID, 'text': 'Формат: /quote 12 цена, срок и условия или /reply 12 сообщение'})
+        else:
+            with connect() as db:
+                row = db.execute('SELECT * FROM orders WHERE id=?', (int(parts[1]),)).fetchone()
+            if not row:
+                telegram('sendMessage', {'chat_id': ADMIN_ID, 'text': 'Заявка не найдена.'})
+            else:
+                title = 'Предложение по заказу' if parts[0] == '/quote' else 'Сообщение по заказу'
+                telegram('sendMessage', {'chat_id': row['user_id'],
+                    'text': f"NEURAW · {title} #{row['id']}\n\n{parts[2]}\n\nОтветьте в этом чате. Для отправки файла добавьте подпись #{row['id']}."})
+                telegram('sendMessage', {'chat_id': ADMIN_ID, 'text': f"Сообщение по заявке #{row['id']} отправлено."})
+    elif msg and (msg.get('photo') or msg.get('document') or msg.get('video') or msg.get('audio')):
+        import re
+        caption = msg.get('caption', '')
+        delivery = re.fullmatch(r'/deliver\s+(\d{1,10})', caption.strip()) if msg['from']['id'] == ADMIN_ID else None
+        if delivery:
+            with connect() as db:
+                row = db.execute('SELECT * FROM orders WHERE id=?', (int(delivery.group(1)),)).fetchone()
+            if row:
+                telegram('copyMessage', {'chat_id': row['user_id'], 'from_chat_id': msg['chat']['id'],
+                                         'message_id': msg['message_id'],
+                                         'caption': f"NEURAW · результат по заявке #{row['id']}"})
+                telegram('sendMessage', {'chat_id': ADMIN_ID, 'text': f"Файл доставлен по заявке #{row['id']}."})
+            else:
+                telegram('sendMessage', {'chat_id': ADMIN_ID, 'text': 'Заявка не найдена.'})
+            return
+        match = re.search(r'(?<!\w)#(\d{1,10})\b', caption)
+        if not match:
+            telegram('sendMessage', {'chat_id': msg['chat']['id'],
+                                    'text': 'Чтобы прикрепить файл к заказу, добавьте в подпись его номер, например #12.'})
+        else:
+            with connect() as db:
+                row = db.execute('SELECT * FROM orders WHERE id=? AND user_id=?',
+                                 (int(match.group(1)), msg['from']['id'])).fetchone()
+            if row:
+                telegram('sendMessage', {'chat_id': ADMIN_ID, 'text': f"Материалы к заявке #{row['id']} от {row['user_id']}:"})
+                telegram('forwardMessage', {'chat_id': ADMIN_ID, 'from_chat_id': msg['chat']['id'],
+                                            'message_id': msg['message_id']})
+                telegram('sendMessage', {'chat_id': msg['chat']['id'], 'text': f"Файл для заявки #{row['id']} получен."})
+            else:
+                telegram('sendMessage', {'chat_id': msg['chat']['id'], 'text': 'Заявка с таким номером не найдена.'})
+    elif msg and msg.get('text', '').strip().startswith('#') and msg.get('from', {}).get('id') != ADMIN_ID:
+        import re
+        match = re.match(r'#(\d{1,10})\s+(.+)', msg['text'], re.S)
+        if match:
+            with connect() as db:
+                row = db.execute('SELECT * FROM orders WHERE id=? AND user_id=?',
+                                 (int(match.group(1)), msg['from']['id'])).fetchone()
+            if row:
+                telegram('sendMessage', {'chat_id': ADMIN_ID,
+                                         'text': f"Ответ клиента по заявке #{row['id']}:\n{match.group(2)[:3000]}"})
+                telegram('sendMessage', {'chat_id': msg['chat']['id'], 'text': 'Ответ передан студии.'})
     callback = update.get('callback_query')
     if callback and callback.get('data', '').startswith('status:'):
         try:
