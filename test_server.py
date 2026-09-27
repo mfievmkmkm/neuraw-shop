@@ -4,6 +4,7 @@ import json
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -44,6 +45,25 @@ class ShopTests(unittest.TestCase):
                 self.assertEqual(first['status'], 'new')
             finally:
                 server.DB_PATH = original
+
+    def test_admin_delivery_requires_existing_order(self):
+        with tempfile.TemporaryDirectory() as folder:
+            original_db, original_admin = server.DB_PATH, server.ADMIN_ID
+            server.DB_PATH, server.ADMIN_ID = Path(folder) / 'shop.sqlite3', 99
+            try:
+                server.init_db()
+                row, _ = server.create_order({'id': 42, 'username': 'buyer'},
+                    {'service': 'cover', 'brief': 'Обложка с цветком и заголовком',
+                     'deadline': '', 'request_id': 'delivery-123'})
+                update = {'message': {'from': {'id': 99}, 'chat': {'id': 99},
+                                      'message_id': 7, 'document': {'file_id': 'abc'},
+                                      'caption': f"/deliver {row['id']}"}}
+                with patch.object(server, 'telegram') as send:
+                    server.process_update(update)
+                self.assertEqual(send.call_args_list[0].args[0], 'copyMessage')
+                self.assertEqual(send.call_args_list[0].args[1]['chat_id'], 42)
+            finally:
+                server.DB_PATH, server.ADMIN_ID = original_db, original_admin
 
 
 if __name__ == '__main__':
