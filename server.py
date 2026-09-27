@@ -4,6 +4,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 from pathlib import Path
 import sqlite3
 import threading
@@ -17,10 +18,82 @@ TOKEN = os.environ.get('SHOP_BOT_TOKEN', '')
 ADMIN_ID = int(os.environ.get('SHOP_ADMIN_ID', '0'))
 WEBAPP_URL = os.environ.get('SHOP_WEBAPP_URL', '')
 DB_PATH = Path(os.environ.get('SHOP_DB_PATH', 'shop.sqlite3'))
-SERVICES = {'cover': 'Кликабельная обложка', 'song': 'Песня-поздравление',
-            'photo': 'AI-фотосессия', 'motion': 'Оживление фото',
-            'video': 'Рекламный ролик', 'custom': 'Индивидуальный проект'}
+CATALOG = {
+    'visual': ('◈ Визуал', [
+        ('cover', 'Обложка и превью', 990, 'Готовый визуал для видео, релиза или публикации.'),
+        ('photo', 'AI-фотосессия · 5 кадров', 1990, 'Серия кадров в одном согласованном образе.'),
+        ('restore', 'Реставрация фото', 790, 'Улучшение и восстановление одного снимка.'),
+        ('productphoto', 'Фото товара', 1290, 'Один постановочный кадр товара.'),
+        ('cards', 'Карточки товаров', 1990, 'Набор визуалов для маркетплейса.')]),
+    'motion': ('✳ Видео и движение', [
+        ('motion', 'Оживление фото · до 10 сек', 1490, 'Короткая анимация одного фото.'),
+        ('video', 'Рекламный ролик · до 5 сек', 2990, 'Одна сцена для продукта или услуги.'),
+        ('talking', 'Говорящее фото', 2490, 'Анимация лица по согласованному тексту.')]),
+    'sound': ('♫ Звук и голос', [
+        ('song', 'Песня-поздравление · до 1 мин', 2990, 'Текст и музыкальная версия под историю.'),
+        ('voice', 'Озвучка', 990, 'Запись согласованного текста.'),
+        ('personal', 'Персональный трек', 3990, 'Индивидуальный музыкальный проект.')]),
+    'digital': ('▦ Боты и сайты', [
+        ('bot', 'Telegram-бот', 9900, 'Сценарии, кнопки и запуск бота.'),
+        ('site', 'Сайт для бизнеса', 14900, 'Адаптивная страница под задачу.'),
+        ('repair', 'Доработка бота', 2990, 'Исправление или новый сценарий.')]),
+    'systems': ('↗ Автоматизация', [
+        ('aiagent', 'AI-бот для бизнеса', 9900, 'Помощник на базе ваших материалов.'),
+        ('monitor', 'Парсер и мониторинг', 6990, 'Сбор данных по заданным правилам.'),
+        ('automation', 'Автоматизация заявок', 6990, 'Передача и обработка входящих обращений.')])}
+SERVICES = {item[0]: item[1] for _, items in CATALOG.values() for item in items}
+SERVICES['custom'] = 'Индивидуальный проект'
+PRICES = {item[0]: item[2] for _, items in CATALOG.values() for item in items}
+DETAILS = {item[0]: item[3] for _, items in CATALOG.values() for item in items}
 STATUSES = {'new': 'Новая', 'progress': 'В работе', 'ready': 'Готово', 'cancelled': 'Отменена'}
+WIZARDS = {}
+
+
+def kb(rows):
+    return {'inline_keyboard': rows}
+
+
+def button(text, callback, style=None):
+    result = {'text': text, 'callback_data': callback}
+    if style:
+        result['style'] = style
+    return result
+
+
+def shop_screen(screen='home'):
+    if screen == 'home':
+        rows = [[button(title, f'catalog:{key}')] for key, (title, _) in CATALOG.items()]
+        rows += [[button('✦ Подобрать услугу', 'catalog:pick', 'primary')],
+                 [button('◷ Мои заявки', 'catalog:my'), button('↗ Своя задача', 'service:custom')]]
+        if WEBAPP_URL.startswith('https://'):
+            rows.append([{'text': 'Открыть витрину', 'web_app': {'url': WEBAPP_URL}}])
+        return ('<b>NEURAW / цифровая студия</b>\n\nВыбери результат — покажем состав работы и ориентир цены. '
+                'Точную стоимость и срок подтвердим после брифа. Оплата только после согласования.', kb(rows))
+    if screen == 'pick':
+        choices = [('Нужен визуал', 'cover'), ('Нужны фото', 'photo'),
+                   ('Нужно видео', 'video'), ('Нужен звук', 'song'),
+                   ('Нужен бот или сайт', 'bot'), ('Не знаю, что выбрать', 'custom')]
+        return ('<b>Какой результат нужен?</b>\nВыбери ближайшую задачу. Если задача сложнее, опиши её своими словами.',
+                kb([[button(label, f'service:{sid}')] for label, sid in choices] +
+                   [[button('← Каталог', 'catalog:home')]]))
+    if screen in CATALOG:
+        title, items = CATALOG[screen]
+        rows = [[button(f'{name} · от {price:,} ₽'.replace(',', ' '), f'service:{sid}')]
+                for sid, name, price, _ in items]
+        rows.append([button('← Все разделы', 'catalog:home')])
+        return (f'<b>{title}</b>\n\nЦены ниже — ориентиры. Состав, срок и итоговую сумму согласуем отдельно.', kb(rows))
+    sid = screen
+    if sid not in SERVICES:
+        return shop_screen()
+    title = SERVICES[sid]
+    import html
+    text = f'<b>{html.escape(title)}</b>\n\n'
+    text += html.escape(DETAILS.get(sid, 'Опиши идею — соберём предложение под задачу.'))
+    if sid in PRICES:
+        text += f"\n\n<b>Ориентир: от {PRICES[sid]:,} ₽</b>".replace(',', ' ')
+    text += '\nФинальную цену, срок и правки подтвердим до начала работы.'
+    return text, kb([[button('Оставить заявку ↗', f'order:{sid}', 'success')],
+                     [button('← Разделы', 'catalog:home')]])
 
 
 def validate_init_data(raw, token, now=None):
@@ -101,14 +174,46 @@ def notify_admin(row):
                  [{'text': 'Отменить', 'callback_data': f"status:{row['id']}:cancelled"}]]}})
 
 
+def finish_bot_order(user_id):
+    draft = WIZARDS.pop(user_id)
+    row, _ = create_order(draft['user'], {'service': draft['service'], 'brief': draft['brief'],
+                          'deadline': draft.get('deadline', ''),
+                          'request_id': 'bot-' + secrets.token_hex(12)})
+    try:
+        notify_admin(row)
+    except Exception:
+        logging.exception('Admin notification failed for order %s', row['id'])
+    telegram('sendMessage', {'chat_id': user_id,
+             'text': f"Заявка #{row['id']} принята. Оценим задачу и напишем здесь. "
+                     f"Файлы отправляй боту с подписью #{row['id']}.\n"
+                     'Отправить ещё одну заявку: /shop'})
+
+
 def process_update(update):
     msg = update.get('message', {})
-    if msg.get('text', '').startswith('/start'):
-        payload = {'chat_id': msg['chat']['id'], 'text': 'NEURAW · цифровая студия\nВыбери услугу и оставь бриф.'}
-        if WEBAPP_URL.startswith('https://'):
-            payload['reply_markup'] = {'inline_keyboard': [[{'text': 'Открыть магазин ↗',
-                                                             'web_app': {'url': WEBAPP_URL}}]]}
-        telegram('sendMessage', payload)
+    if msg.get('text', '').split(' ', 1)[0] in ('/start', '/shop', '/cancel'):
+        WIZARDS.pop(msg['from']['id'], None)
+        content, markup = shop_screen()
+        telegram('sendMessage', {'chat_id': msg['chat']['id'], 'text': content,
+                                 'parse_mode': 'HTML', 'reply_markup': markup})
+    elif msg and msg.get('from', {}).get('id') in WIZARDS and msg.get('text'):
+        uid = msg['from']['id']
+        draft = WIZARDS[uid]
+        value = msg['text'].strip()
+        if draft['stage'] == 'brief':
+            if not 10 <= len(value) <= 3000:
+                telegram('sendMessage', {'chat_id': uid, 'text': 'Опиши задачу чуть подробнее (от 10 до 3000 символов). Для отмены: /cancel'})
+            else:
+                draft['brief'], draft['stage'] = value, 'deadline'
+                telegram('sendMessage', {'chat_id': uid,
+                    'text': 'К какому сроку нужен результат? Напиши дату или нажми «Пока не знаю».',
+                    'reply_markup': kb([[button('Пока не знаю', 'deadline:skip')],
+                                        [button('Отменить', 'catalog:home', 'danger')]])})
+        elif len(value) > 120:
+            telegram('sendMessage', {'chat_id': uid, 'text': 'Укажи срок короче — до 120 символов.'})
+        else:
+            draft['deadline'] = value
+            finish_bot_order(uid)
     elif msg.get('text', '').startswith('/my'):
         with connect() as db:
             rows = db.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 10',
@@ -176,7 +281,37 @@ def process_update(update):
                                          'text': f"Ответ клиента по заявке #{row['id']}:\n{match.group(2)[:3000]}"})
                 telegram('sendMessage', {'chat_id': msg['chat']['id'], 'text': 'Ответ передан студии.'})
     callback = update.get('callback_query')
-    if callback and callback.get('data', '').startswith('status:'):
+    if callback and callback.get('data', '').startswith(('catalog:', 'service:', 'order:', 'deadline:')):
+        uid = callback['from']['id']
+        data = callback['data']
+        telegram('answerCallbackQuery', {'callback_query_id': callback['id']})
+        if data == 'deadline:skip':
+            if WIZARDS.get(uid, {}).get('stage') == 'deadline':
+                finish_bot_order(uid)
+            return
+        if data.startswith('order:'):
+            sid = data.split(':', 1)[1]
+            if sid not in SERVICES:
+                return
+            WIZARDS[uid] = {'user': callback['from'], 'service': sid, 'stage': 'brief'}
+            telegram('sendMessage', {'chat_id': uid, 'text':
+                f"<b>{SERVICES[sid]}</b>\n\nОпиши задачу: что нужно получить, стиль, размер или площадку, "
+                'важные детали. Файлы пришлёшь после заявки. Для отмены: /cancel',
+                'parse_mode': 'HTML'})
+            return
+        screen = data.split(':', 1)[1]
+        if screen == 'my':
+            with connect() as db:
+                rows = db.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 10', (uid,)).fetchall()
+            message = '\n'.join(f"#{r['id']} · {SERVICES[r['service']]} · {STATUSES[r['status']]}" for r in rows)
+            content, markup = message or 'Заявок пока нет.', kb([[button('← Каталог', 'catalog:home')]])
+        else:
+            WIZARDS.pop(uid, None)
+            content, markup = shop_screen(screen)
+        telegram('editMessageText', {'chat_id': callback['message']['chat']['id'],
+                 'message_id': callback['message']['message_id'], 'text': content,
+                 'parse_mode': 'HTML', 'reply_markup': markup})
+    elif callback and callback.get('data', '').startswith('status:'):
         try:
             _, oid, status = callback['data'].split(':')
             if callback['from']['id'] != ADMIN_ID or status not in STATUSES or status == 'new':
@@ -277,5 +412,12 @@ if __name__ == '__main__':
     if not TOKEN or not ADMIN_ID or not WEBAPP_URL.startswith('https://'):
         raise SystemExit('Set SHOP_BOT_TOKEN, SHOP_ADMIN_ID, and HTTPS SHOP_WEBAPP_URL')
     init_db()
+    try:
+        telegram('setMyCommands', {'commands': [
+            {'command': 'shop', 'description': 'Каталог услуг NEURAW'},
+            {'command': 'my', 'description': 'Мои заявки'},
+            {'command': 'cancel', 'description': 'Отменить заполнение заявки'}]})
+    except Exception:
+        logging.exception('Could not set bot commands')
     threading.Thread(target=poll_bot, daemon=True).start()
     ThreadingHTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8080'))), Handler).serve_forever()
