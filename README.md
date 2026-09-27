@@ -6,7 +6,13 @@ Mobile-first Telegram Mini App. The shop accepts briefs, stores orders in SQLite
 
 Create a **separate** Railway service from this repository using the Dockerfile. Add a persistent volume mounted at `/data`. Set the four environment variables shown in `.env.example`; `SHOP_BOT_TOKEN` is a **new shop bot's** BotFather token, `SHOP_ADMIN_ID` is your numeric Telegram user ID, and `SHOP_WEBAPP_URL` is the service's public HTTPS URL with a trailing slash. Do not commit real secrets. Run one replica only: the server uses Telegram long polling and a local SQLite volume.
 
-Start the bot in Telegram. Its **Открыть магазин** button opens the Mini App. A customer submits a brief; the admin gets a message with **В работу / Готово / Отменить** buttons. The customer gets a status message, and can check **Мои заявки** in the app or `/my` in the bot. If the admin notification fails temporarily, the order stays in SQLite; check the server log and the database before following up.
+Start the bot in Telegram. The chat catalog is the primary path, and **Открыть витрину** opens the Mini App. A customer submits a brief; the admin gets a message with **В работу / Готово / Отменить** buttons. The customer gets a status message, and can check **Мои заявки** in the app or `/my` in the bot. If the admin notification fails temporarily, the order stays in SQLite; check the server log and the database before following up.
+
+## Shop in the bot chat
+
+`/start` or `/shop` opens a native Telegram catalog with five sections and 17 services. Each service has a short description, a starting price and a **Оставить заявку** button. A short picker helps customers choose by result. The bot collects a brief and optional deadline, then uses the same order database and admin notifications as the Mini App. `/cancel` leaves an unfinished brief. Drafts in the chat live in process memory and are lost on restart; completed orders remain in SQLite.
+
+All listed prices are **proposed starting prices in RUB**, editable in `CATALOG` in `server.py`. They are not a firm quote or an invoice. Approve them before advertising the shop widely. Telegram may render the supported button styles differently across clients; custom emoji icons need the actual emoji IDs and an eligible bot owner.
 
 ## How to fulfil an order
 
