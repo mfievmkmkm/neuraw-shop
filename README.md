@@ -8,6 +8,16 @@ Create a **separate** Railway service from this repository using the Dockerfile.
 
 Start the bot in Telegram. Its **Открыть магазин** button opens the Mini App. A customer submits a brief; the admin gets a message with **В работу / Готово / Отменить** buttons. The customer gets a status message, and can check **Мои заявки** in the app or `/my` in the bot. If the admin notification fails temporarily, the order stays in SQLite; check the server log and the database before following up.
 
+## How to fulfil an order
+
+1. In the admin chat, read the brief and press **В работу** once you accept it. Send `/orders` to see the 15 most recent orders.
+2. Ask for any missing details with `/reply 12 Пришлите логотип и референсы` (replace `12` with the order number). The customer sends text beginning `#12 `, or a photo, document, video or audio with `#12` in its caption. The bot verifies order ownership and forwards it to the admin.
+3. Agree on scope, price, deadline and included revision before beginning: `/quote 12 Обложка 1500 ₽, 2 дня, одна небольшая правка. Оплату обсудим отдельно.` This is a message, **not an invoice or payment confirmation**.
+4. Produce the deliverable using your tools and review it yourself. Send the final file to your admin bot chat with caption `/deliver 12`; the bot copies that file to the customer. Press **Готово** after delivery.
+5. Keep the brief, agreed terms and delivered files for support. Only use people's images or voices with their permission.
+
+These commands are an initial operator workflow, not an automated production service. The shop accepts and tracks requests; you create and quality-check each result.
+
 Local check: `python -m unittest discover -v`. The app requires Python 3.12 and uses only its standard library. A plain browser can preview the storefront, but order submission requires valid Telegram Mini App `initData`.
 
 ## Portfolio samples
@@ -15,6 +25,8 @@ Local check: `python -m unittest discover -v`. The app requires Python 3.12 and 
 All files under `assets/` are original demonstration concepts created for this project; they are **not customer cases**.
 
 - `cover-concept.png`: fictional release artwork with added typography.
+- `flower-cover-v2.png`: new original fictional cover direction.
+- `site-demo.html`: a responsive working landing page concept for a fictional brand.
 - `photoshoot-concept.png`: fictional adult model; demonstrates a visual style, not identity-preserving editing of a real customer.
 - `video-concept.mp4`: five-second motion ad from an original still; demonstrates compositing and motion, not multi-shot generative video.
 - `photo-motion-concept.mp4`: ten-second camera movement on an original portrait; it does **not** demonstrate lip sync or a speaking portrait.
