@@ -14,6 +14,7 @@ from urllib.parse import parse_qsl, urlparse
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
+VERSION = 'chat-shop-2026-09-28-1'
 TOKEN = os.environ.get('SHOP_BOT_TOKEN', '')
 ADMIN_ID = int(os.environ.get('SHOP_ADMIN_ID', '0'))
 WEBAPP_URL = os.environ.get('SHOP_WEBAPP_URL', '')
@@ -191,7 +192,9 @@ def finish_bot_order(user_id):
 
 def process_update(update):
     msg = update.get('message', {})
-    if msg.get('text', '').split(' ', 1)[0] in ('/start', '/shop', '/cancel'):
+    if msg.get('text', '').strip() == '/version':
+        telegram('sendMessage', {'chat_id': msg['chat']['id'], 'text': f'NEURAW {VERSION}'})
+    elif msg.get('text', '').split(' ', 1)[0] in ('/start', '/shop', '/cancel'):
         WIZARDS.pop(msg['from']['id'], None)
         content, markup = shop_screen()
         telegram('sendMessage', {'chat_id': msg['chat']['id'], 'text': content,
@@ -381,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == '/api/health':
-            return self.respond(200, {'ok': True})
+            return self.respond(200, {'ok': True, 'version': VERSION})
         if path == '/api/orders':
             try:
                 from urllib.parse import parse_qs
@@ -416,7 +419,8 @@ if __name__ == '__main__':
         telegram('setMyCommands', {'commands': [
             {'command': 'shop', 'description': 'Каталог услуг NEURAW'},
             {'command': 'my', 'description': 'Мои заявки'},
-            {'command': 'cancel', 'description': 'Отменить заполнение заявки'}]})
+            {'command': 'cancel', 'description': 'Отменить заполнение заявки'},
+            {'command': 'version', 'description': 'Версия магазина'}]})
     except Exception:
         logging.exception('Could not set bot commands')
     threading.Thread(target=poll_bot, daemon=True).start()
